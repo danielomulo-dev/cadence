@@ -149,7 +149,7 @@ export default function Cadence() {
 
   const [provider, setProvider] = useState(bootEngine.provider || "gemini");
   const [keys, setKeys] = useState({ openai: "", gemini: "", anthropicProxy: "", ...(boot.keys || {}) });
-  const [models, setModels] = useState(bootEngine.models || { openai: "gpt-4o-mini", gemini: "gemini-2.5-flash" });
+  const [models, setModels] = useState(bootEngine.models || { openai: "gpt-5-mini", gemini: "gemini-3.5-flash" });
   const [rememberKeys, setRememberKeys] = useState(!!bootEngine.rememberKeys);
   const [keyStatus, setKeyStatus] = useState(null); // null | testing | ok | bad
 
@@ -517,12 +517,14 @@ Return ONLY: {"contentType":"...","hook":"under 12 words","caption":"use \\n for
                     <input className="cd-in" list={`models-${provider}`} value={models[provider]}
                       onChange={(e) => setModels((m) => ({ ...m, [provider]: e.target.value }))} />
                     <datalist id="models-openai">
-                      <option value="gpt-4o-mini" /><option value="gpt-4o" />
+                      <option value="gpt-5-mini" /><option value="gpt-5.5" />
+                      <option value="gpt-5" /><option value="gpt-5-nano" />
                       <option value="gpt-4.1" /><option value="gpt-4.1-mini" />
                     </datalist>
                     <datalist id="models-gemini">
-                      <option value="gemini-2.5-flash" /><option value="gemini-2.5-pro" />
-                      <option value="gemini-2.0-flash" /><option value="gemini-1.5-pro" />
+                      <option value="gemini-3.5-flash" /><option value="gemini-3-flash" />
+                      <option value="gemini-3.1-pro-preview" /><option value="gemini-3-pro" />
+                      <option value="gemini-flash-latest" /><option value="gemini-2.5-flash" />
                     </datalist>
                   </Field>
                   <button className="cd-ghost" style={{ width: "100%", justifyContent: "center",
