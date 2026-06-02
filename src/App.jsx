@@ -88,18 +88,27 @@ async function callAnthropic(cfg, system, user) {
 }
 
 async function callOpenAI(cfg, system, user) {
+  const model = cfg.model || "gpt-4.1-mini";
+  // GPT-5 family (and o-series reasoning models) need max_completion_tokens
+  // and don't support temperature. Detect by name and shape the body accordingly.
+  const isReasoning = /^(gpt-5|o\d)/i.test(model);
+  const body = {
+    model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+  };
+  if (isReasoning) {
+    body.max_completion_tokens = 1500;
+  } else {
+    body.max_tokens = 1200;
+    body.temperature = 0.85;
+  }
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.key}` },
-    body: JSON.stringify({
-      model: cfg.model || "gpt-4o-mini",
-      max_tokens: 1200,
-      temperature: 0.85,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     let m = `OpenAI API error ${res.status}`;
@@ -149,7 +158,7 @@ export default function Cadence() {
 
   const [provider, setProvider] = useState(bootEngine.provider || "gemini");
   const [keys, setKeys] = useState({ openai: "", gemini: "", anthropicProxy: "", ...(boot.keys || {}) });
-  const [models, setModels] = useState(bootEngine.models || { openai: "gpt-5-mini", gemini: "gemini-3.5-flash" });
+  const [models, setModels] = useState(bootEngine.models || { openai: "gpt-4.1-mini", gemini: "gemini-3.5-flash" });
   const [rememberKeys, setRememberKeys] = useState(!!bootEngine.rememberKeys);
   const [keyStatus, setKeyStatus] = useState(null); // null | testing | ok | bad
 
@@ -517,14 +526,15 @@ Return ONLY: {"contentType":"...","hook":"under 12 words","caption":"use \\n for
                     <input className="cd-in" list={`models-${provider}`} value={models[provider]}
                       onChange={(e) => setModels((m) => ({ ...m, [provider]: e.target.value }))} />
                     <datalist id="models-openai">
-                      <option value="gpt-5-mini" /><option value="gpt-5.5" />
-                      <option value="gpt-5" /><option value="gpt-5-nano" />
-                      <option value="gpt-4.1" /><option value="gpt-4.1-mini" />
+                      <option value="gpt-4.1-mini" /><option value="gpt-4.1" />
+                      <option value="gpt-4.1-nano" />
+                      <option value="gpt-5-mini" /><option value="gpt-5" />
+                      <option value="gpt-5-nano" /><option value="gpt-5.5" />
                     </datalist>
                     <datalist id="models-gemini">
-                      <option value="gemini-3.5-flash" /><option value="gemini-3-flash" />
-                      <option value="gemini-3.1-pro-preview" /><option value="gemini-3-pro" />
-                      <option value="gemini-flash-latest" /><option value="gemini-2.5-flash" />
+                      <option value="gemini-3.5-flash" /><option value="gemini-flash-latest" />
+                      <option value="gemini-3-flash" /><option value="gemini-3-pro" />
+                      <option value="gemini-2.5-flash" />
                     </datalist>
                   </Field>
                   <button className="cd-ghost" style={{ width: "100%", justifyContent: "center",
