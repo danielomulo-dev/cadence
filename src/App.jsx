@@ -150,11 +150,13 @@ export default function Cadence() {
   const bootEngine = boot.engine || {};
   const bootWork = boot.work || {};
 
-  const [brief, setBrief] = useState(boot.brief || {
+  const defaultBrief = {
     brand: "", industry: "", objective: OBJECTIVES[0],
     voices: ["Bold", "Premium"], audience: "", notes: "",
     platforms: ["instagram", "linkedin"], perWeek: 3, start: iso(nextMonday()),
-  });
+    organicMix: 50,
+  };
+  const [brief, setBrief] = useState({ ...defaultBrief, ...(boot.brief || {}) });
 
   const [provider, setProvider] = useState(bootEngine.provider || "gemini");
   const [keys, setKeys] = useState({ openai: "", gemini: "", anthropicProxy: "", ...(boot.keys || {}) });
@@ -174,6 +176,7 @@ export default function Cadence() {
   const [view, setView] = useState("calendar");
   const [fPlat, setFPlat] = useState("all");
   const [fPillar, setFPillar] = useState("all");
+  const [fMode, setFMode] = useState("all");
   const [selected, setSelected] = useState(null);
   const [regenId, setRegenId] = useState(null);
   const [toast, setToast] = useState(null);
@@ -242,9 +245,16 @@ export default function Cadence() {
       }
     });
     slots.sort((a, b) => a.date - b.date);
+    // Evenly distribute organic posts using a fractional accumulator,
+    // so an organicMix of 50% truly alternates and 33% gives every third.
+    let acc = 0;
+    const step = (brief.organicMix || 0) / 100;
     slots.forEach((s, i) => {
       s.id = `p${i}-${s.platform}`;
       s.pillar = pillars[i % pillars.length].name;
+      acc += step;
+      if (acc >= 1) { s.mode = "organic"; acc -= 1; }
+      else { s.mode = "promotional"; }
     });
     return slots;
   }
@@ -269,6 +279,9 @@ Brand voice: ${brief.voices.join(", ") || "neutral"}
 Target audience: ${brief.audience || "general"}
 Key messages / product notes: ${brief.notes || "n/a"}
 Platforms: ${brief.platforms.map((p) => platformById(p).label).join(", ")}
+Content mix target: ~${brief.organicMix}% organic / community-led, ~${100 - brief.organicMix}% promotional / brand-led.
+
+Design 4 content pillars that reflect BOTH modes — include at least one connection-driven pillar (community spotlight, founder/team POV, behind-the-scenes, cultural moments, value-add education) alongside brand-led pillars. Organic pillars build connection without selling.
 
 Return ONLY this JSON:
 {"theme":"a punchy monthly campaign theme (max 6 words)","bigIdea":"1-2 sentence creative concept","audienceInsight":"1 sentence consumer insight","pillars":[{"name":"short pillar name (1-3 words)","angle":"one line on what content this pillar produces"}]}
@@ -292,7 +305,7 @@ Provide exactly 4 content pillars.`;
       for (let i = 0; i < slots.length; i += BATCH) {
         const batch = slots.slice(i, i + BATCH);
         const list = batch.map((s, k) =>
-          `${k + 1}. platform=${platformById(s.platform).label}; date=${fmtShort(s.date)}; pillar="${s.pillar}"`
+          `${k + 1}. platform=${platformById(s.platform).label}; date=${fmtShort(s.date)}; pillar="${s.pillar}"; mode=${s.mode}`
         ).join("\n");
         const cUser =
 `Campaign theme: "${strat.theme}". Big idea: ${strat.bigIdea}
@@ -302,10 +315,16 @@ Audience: ${brief.audience || "general"} | Notes: ${brief.notes || "n/a"}
 Write content for these ${batch.length} posts (keep the SAME order):
 ${list}
 
+Each slot specifies a "mode":
+- "organic" = connection-first, NO direct selling. Behind-the-scenes, founder/team POV, community/customer spotlight, day-in-life, cultural/trend moments, polls or open questions, value-add education, candid storytelling. Voice feels human and unpolished.
+- "promotional" = brand-led. Product feature, USP, offer, brand statement, launch announcement, conversion-driven. Voice is sharper and intentional.
+
+Pick contentType to fit BOTH the platform and the mode. Organic types lean: BTS, Founder POV, Community spotlight, Day-in-life, Poll, Q&A, Carousel (educational). Promotional types lean: Product reel, Hero shot, Offer carousel, Launch teaser.
+
 Platform norms: LinkedIn = professional, value-led, no hashtag spam. X = tight, punchy, <280 chars. Instagram/TikTok = energetic, hook-driven, light emoji ok. Facebook = friendly, slightly longer.
 
 Return ONLY a JSON array of exactly ${batch.length} objects in the same order:
-[{"contentType":"e.g. Reel / Carousel / Single image / Story / Text post / Short video / Poll (fit the platform)","hook":"scroll-stopping first line, under 12 words","caption":"full ready-to-post caption, use \\n for line breaks","hashtags":["3-6 tags WITHOUT the # symbol"],"visual":"one-sentence art direction","cta":"the call to action"}]`;
+[{"contentType":"format that fits the platform AND mode","hook":"scroll-stopping first line, under 12 words","caption":"full ready-to-post caption, use \\n for line breaks","hashtags":["3-6 tags WITHOUT the # symbol"],"visual":"one-sentence art direction","cta":"the call to action — for organic posts this can be conversational (e.g. tell us / tag someone) not transactional"}]`;
         let items = [];
         try { items = parseLoose(await callModel(cSys, cUser)); }
         catch (e) { items = []; }
@@ -315,6 +334,7 @@ Return ONLY a JSON array of exactly ${batch.length} objects in the same order:
           const it = items[k] || {};
           return {
             id: s.id, date: iso(s.date), platform: s.platform, pillar: s.pillar,
+            mode: s.mode,
             contentType: it.contentType || "Post",
             hook: it.hook || "(generation incomplete — regenerate)",
             caption: it.caption || "",
@@ -342,10 +362,15 @@ Return ONLY a JSON array of exactly ${batch.length} objects in the same order:
     setRegenId(post.id); setError(null);
     try {
       const sys = "You are an elite social copywriter at a top advertising agency. Reply with ONLY one valid JSON object, no markdown.";
+      const mode = post.mode || "promotional";
+      const modeDesc = mode === "organic"
+        ? "connection-first, NO direct selling. Lean BTS / community / founder POV / cultural moment / value-add / candid. Conversational CTA."
+        : "brand-led — product, USP, offer, brand statement, or launch. Direct CTA.";
       const user =
 `Rewrite ONE social post — fresh angle, same slot.
 Campaign theme: "${strategy.theme}". Brand: ${brief.brand}. Voice: ${brief.voices.join(", ")}.
 Platform: ${platformById(post.platform).label}. Pillar: "${post.pillar}". Date: ${fmtShort(new Date(post.date + "T00:00:00"))}.
+Mode: ${mode} (${modeDesc})
 Objective: ${brief.objective}. Notes: ${brief.notes || "n/a"}.
 
 Return ONLY: {"contentType":"...","hook":"under 12 words","caption":"use \\n for breaks","hashtags":["no # symbol"],"visual":"one sentence","cta":"..."}`;
@@ -392,9 +417,9 @@ Return ONLY: {"contentType":"...","hook":"under 12 words","caption":"use \\n for
 
   function exportCSV() {
     const esc = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
-    const rows = [["Date", "Platform", "Type", "Pillar", "Hook", "Caption", "Hashtags", "Visual", "CTA", "Status"]];
+    const rows = [["Date", "Platform", "Mode", "Type", "Pillar", "Hook", "Caption", "Hashtags", "Visual", "CTA", "Status"]];
     [...posts].sort((a, b) => a.date.localeCompare(b.date)).forEach((p) =>
-      rows.push([p.date, platformById(p.platform).label, p.contentType, p.pillar, p.hook,
+      rows.push([p.date, platformById(p.platform).label, p.mode || "promotional", p.contentType, p.pillar, p.hook,
         p.caption, p.hashtags.map((h) => "#" + h).join(" "), p.visual, p.cta, p.status].map(esc)));
     const csv = rows.map((r) => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -432,7 +457,9 @@ Return ONLY: {"contentType":"...","hook":"under 12 words","caption":"use \\n for
 
   /* ---------- filters & stats ---------- */
   const filtered = posts.filter((p) =>
-    (fPlat === "all" || p.platform === fPlat) && (fPillar === "all" || p.pillar === fPillar));
+    (fPlat === "all" || p.platform === fPlat) &&
+    (fPillar === "all" || p.pillar === fPillar) &&
+    (fMode === "all" || (p.mode || "promotional") === fMode));
   const approved = posts.filter((p) => p.status === "approved").length;
   const pillarCounts = (strategy?.pillars || []).map((pl) => ({
     ...pl, count: posts.filter((p) => p.pillar === pl.name).length,
@@ -624,6 +651,19 @@ Return ONLY: {"contentType":"...","hook":"under 12 words","caption":"use \\n for
                 </div>
               </Field>
 
+              <Field label={`Organic Mix — ${brief.organicMix}% community-led`}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <button className="cd-step" onClick={() => set("organicMix", Math.max(0, brief.organicMix - 10))}><Minus size={14} /></button>
+                  <div style={S.stepBar}>
+                    <div style={{ ...S.stepFill, width: `${brief.organicMix}%`, background: "var(--sage)" }} />
+                  </div>
+                  <button className="cd-step" onClick={() => set("organicMix", Math.min(100, brief.organicMix + 10))}><Plus size={14} /></button>
+                </div>
+                <div style={S.estimate}>
+                  {Math.round(brief.platforms.length * brief.perWeek * 4 * brief.organicMix / 100)} organic · {brief.platforms.length * brief.perWeek * 4 - Math.round(brief.platforms.length * brief.perWeek * 4 * brief.organicMix / 100)} promotional
+                </div>
+              </Field>
+
               <Field label="Start Date">
                 <input className="cd-in" type="date" value={brief.start} onChange={(e) => set("start", e.target.value)} />
               </Field>
@@ -716,6 +756,11 @@ Return ONLY: {"contentType":"...","hook":"under 12 words","caption":"use \\n for
               <select className="cd-filter" value={fPillar} onChange={(e) => setFPillar(e.target.value)}>
                 <option value="all">All pillars</option>
                 {(strategy?.pillars || []).map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+              </select>
+              <select className="cd-filter" value={fMode} onChange={(e) => setFMode(e.target.value)}>
+                <option value="all">All modes</option>
+                <option value="organic">Organic only</option>
+                <option value="promotional">Promotional only</option>
               </select>
             </div>
           )}
@@ -902,6 +947,14 @@ function PostCard({ p, onOpen, compact }) {
       <div style={S.cardHook}>{p.hook}</div>
       {!compact && <div style={S.cardCap}>{p.caption}</div>}
       <div style={S.cardMeta}>
+        {p.mode && (
+          <span style={{
+            ...S.tag,
+            ...(p.mode === "organic"
+              ? { borderColor: "var(--sage)", color: "var(--sage)" }
+              : { borderColor: "var(--accent)", color: "var(--accent-deep)" })
+          }}>{p.mode === "organic" ? "Organic" : "Promo"}</span>
+        )}
         <span style={S.tag}>{p.contentType}</span>
         <span style={S.tag}>{p.pillar}</span>
       </div>
@@ -928,6 +981,14 @@ function Drawer({ p, onClose, onCopy, onRegen, regenning, onEdit, onApprove }) {
         <div style={S.drawerTags}>
           <span style={{ ...S.tag, ...S.tagSolid }}>{p.contentType}</span>
           <span style={S.tag}>{p.pillar}</span>
+          {p.mode && (
+            <span style={{
+              ...S.tag,
+              ...(p.mode === "organic"
+                ? { borderColor: "var(--sage)", color: "var(--sage)" }
+                : { borderColor: "var(--accent)", color: "var(--accent-deep)" })
+            }}>{p.mode === "organic" ? "Organic" : "Promotional"}</span>
+          )}
           {p.status === "approved"
             ? <span style={{ ...S.tag, color: "var(--sage)", borderColor: "var(--sage)" }}><Check size={11} /> Approved</span>
             : <span style={{ ...S.tag, opacity: .7 }}>Draft</span>}
